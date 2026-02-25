@@ -1,0 +1,157 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <time.h>
+#include <pthread.h>
+#include <string.h>
+#include "client.h"
+
+void *receive_messages(void *sock_ptr);
+void convert(uint8_t *buf, char *str, ssize_t size);
+
+char server_ip[INET_ADDRSTRLEN];
+int server_port;
+
+
+
+/*
+void *receive_messages(void *sock_ptr) {
+  int sock = *(int *)sock_ptr;
+  char buffer[1024];
+
+  while(1) {
+    int bytes_read = recv(sock, buffer, sizeof(buffer) - 1, 0);
+    if (bytes_read <= 0) {
+      if (bytes_read == 0) {
+        printf("Server disconnected\n");
+      }
+      else {
+        perror("recv");
+      }
+      break;
+      buffer[bytes_read] = '\0';
+
+      printf("%-20s%10d%s\n", server_ip, server_port, buffer);
+    }
+    return NULL;
+  }
+}
+
+ 
+void convert(uint8_t *buf, char *str, ssize_t size) {
+  if (size % 2 == 0) 
+    size = size / 2 - 1;
+  else
+    size = size / 2;
+
+  for (int i = 0; i < size ; i++)
+    sprintf(str + i * 2, "%02X", buf[i]);
+}
+*/
+int main(int argc, char *argv[]) {
+  if (argc != 3) {
+    fprintf(stderr, "Usage: %s <# of seconds> <server IP address>\n", argv[0]);
+    exit(EXIT_FAILURE);
+  }
+
+  int seconds = atoi(argv[1]);
+  if (seconds < 0) {
+    fprintf(stderr, "Invalid number of seconds: %d\n", seconds);
+    exit(EXIT_FAILURE);
+  }
+
+  strncpy(server_ip, argv[2], INET_ADDRSTRLEN);
+  server_port = PORT;
+
+  int sock = socket(AF_INET, SOCK_STREAM, 0);
+  if (sock < 0) {
+    perror("socket");
+    exit(EXIT_FAILURE);
+  }
+
+  struct sockaddr_in server_address;
+  server_address.sin_family = AF_INET;
+  server_address.sin_port = htons(PORT);
+  server_address.sin_addr.s_addr = inet_addr(server_ip);
+
+  if (connect(sock, (struct sockaddr *)&server_address, sizeof(server_address)) < 0) {
+    perror("connect");
+    close(sock);
+    exit(EXIT_FAILURE);
+  }
+
+  pthread_t recv_thread;
+  if (pthread_create(&recv_thread, NULL, receive_messages, &sock) != 0) {
+    perror("pthread_create");
+    close(sock);
+    exit(EXIT_FAILURE);
+  }
+
+  time_t start_time = time(NULL);
+  while (time(NULL) - start_time < seconds) {
+    uint8_t buf[128];
+    getentropy(buf, sizeof(buf));
+
+    char str[257];
+    convert(buf,str, sizeof(buf));
+
+    char message[512];
+    int message_len = snprintf(message, sizeof(message), "%s\n", str);
+    if (message_len >= sizeof(message)) {
+      fprintf(stderr, "Error: too long to send");
+      continue;
+    }
+
+    if (send(sock, message, message_len, 0) < 0) {
+      perror("send");
+      break;
+    }
+    usleep(1000000);
+  }
+  
+  char end_msg[] = "Client is disconnecting.\n";
+  if (send(sock, end_msg, strlen(end_msg), 0) < 0) {
+    perror("send");
+  }
+
+  pthread_join(recv_thread, NULL);
+  close(sock);
+
+  return 0;
+}
+
+void *receive_messages(void *sock_ptr) {
+  int sock = *(int *)sock_ptr;
+  char buffer[1024];
+
+  while(1) {
+    int bytes_read = recv(sock, buffer, sizeof(buffer) - 1, 0);
+    if (bytes_read <= 0) {
+      if (bytes_read == 0) {
+        printf("Server disconnected\n");
+      }
+      else {
+        perror("recv");
+      }
+      break;
+    }
+    buffer[bytes_read] = '\0';
+    printf("%-20s%-10d%s\n", server_ip, server_port, buffer);
+  }
+  return NULL;
+}
+
+
+void convert(uint8_t *buf, char *str, ssize_t size) {
+  if (size % 2 == 0)
+    size = size / 2 - 1;
+  else
+    size = size / 2;
+
+  for (int i = 0; i < size; i++)
+    sprintf(str + i * 2, "%02X", buf[i]);
+}
+

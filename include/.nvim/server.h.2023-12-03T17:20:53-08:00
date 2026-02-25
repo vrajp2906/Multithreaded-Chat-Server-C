@@ -1,0 +1,31 @@
+#ifndef SERVER_H
+#define SERVER_H
+
+#include <netinet/in.h>
+#include <pthread.h>
+
+#define PORT 8000
+//#define MAX_CLIENTS 1000
+
+typedef struct {
+  int socket;
+  struct sockaddr_in address;
+  int active;
+} Client;
+
+typedef struct {
+  int num_clients;
+  Client *clients;
+  pthread_mutex_t mutex;
+} Server;
+
+typedef struct {
+  Server *server;
+  int client_index;
+  int max_clients;
+} ClientHandlerArgs;
+
+void *handle_client(void *args);
+void broadcast_message(Server *server, int sender_index, const char *message);
+
+#endif
